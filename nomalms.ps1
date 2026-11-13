@@ -8,7 +8,7 @@
 #   nomalms status                              products, licences, installs
 #   nomalms install <product> [folder]          clone a product
 #   nomalms adopt <folder>                      switch an existing clone to nomalms
-#   nomalms upgrade [product|folder]            git pull (all installs if none given)
+#   nomalms upgrade [product|folder|--all]      git pull one product (asks which if several)
 #   nomalms license <product>                   print the licence key
 #   nomalms self-update                         update this tool
 #
@@ -17,7 +17,7 @@
 
 # Not 'Stop': Windows PowerShell 5.1 would turn anything git writes to stderr into a failure.
 $ErrorActionPreference = 'Continue'
-$Version = '1.0.0'
+$Version = '1.1.0'
 $DefaultUrl = 'https://nomalms.nomana-it.fr'
 $ConfDir = if ($env:NOMALMS_HOME) { $env:NOMALMS_HOME } else { Join-Path $env:APPDATA 'nomalms' }
 $ConfFile = Join-Path $ConfDir 'config'
@@ -254,11 +254,25 @@ function Cmd-Upgrade($Arguments) {
     Need 'git'
     $installs = Get-Installs
     if ($installs.Count -eq 0) { Die 'nothing installed through nomalms yet (nomalms install, or nomalms adopt <folder>)' }
-    if ($Arguments.Count -ge 1) {
-        $target = [string]$Arguments[0]
+    $target = ''
+    if ($Arguments.Count -ge 1) { $target = [string]$Arguments[0] }
+    if (-not $target -and $installs.Count -gt 1) {
+        # Several products on this server: never pull them all without being asked.
+        [Console]::Error.WriteLine('Several products are installed on this server:')
+        for ($n = 0; $n -lt $installs.Count; $n++) { [Console]::Error.WriteLine("  $($n + 1)) $($installs[$n].name)  ($($installs[$n].dir))") }
+        if ([Console]::IsInputRedirected) { Die 'say which one: nomalms upgrade <product|folder>, or nomalms upgrade --all' }
+        [Console]::Error.Write("Which one to upgrade? [1-$($installs.Count), a = all, Enter = none] ")
+        $answer = "$([Console]::ReadLine())".Trim()
+        if ($answer -in 'a', 'all') { $target = '--all' }
+        elseif ($answer -notmatch '^[0-9]+$') { Die 'nothing upgraded' }
+        elseif ([int]$answer -lt 1 -or [int]$answer -gt $installs.Count) { Die "nothing upgraded: '$answer' is not in the list" }
+        else { $target = $installs[[int]$answer - 1].dir }
+    }
+    if ($target -and $target -ne '--all') {
+        $shown = $target
         if (Test-Path $target) { $target = (Resolve-Path $target).Path }
         $installs = @($installs | Where-Object { $_.name -eq $target -or $_.dir -eq $target })
-        if ($installs.Count -eq 0) { Die "'$($Arguments[0])' is not installed through nomalms (see: nomalms status)" }
+        if ($installs.Count -eq 0) { Die "'$shown' is not installed through nomalms (see: nomalms status)" }
     }
     $failed = 0
     foreach ($i in $installs) { $ok = $true; Upgrade-One $i | ForEach-Object { if ($_ -is [bool]) { $ok = $_ } else { Write-Output $_ } }; if (-not $ok) { $failed = 1 } }

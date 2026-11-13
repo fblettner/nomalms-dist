@@ -9,14 +9,14 @@
 #   nomalms status                              products, licences, installs
 #   nomalms install <product> [folder]          clone a product
 #   nomalms adopt <folder>                      switch an existing clone to nomalms
-#   nomalms upgrade [product|folder]            git pull (all installs if none given)
+#   nomalms upgrade [product|folder|--all]      git pull one product (asks which if several)
 #   nomalms license <product>                   print the licence key
 #   nomalms self-update                         update this tool
 #
 # Needs: git, curl. Holds no secret itself; the server token is kept in
 # ~/.config/nomalms/config, readable by this user only.
 
-VERSION="1.0.0"
+VERSION="1.1.0"
 DEFAULT_URL="https://nomalms.nomana-it.fr"
 CONF_DIR="${NOMALMS_HOME:-$HOME/.config/nomalms}"
 CONF_FILE="$CONF_DIR/config"
@@ -242,11 +242,29 @@ upgrade_one() {
 cmd_upgrade() {
     need git
     [ -s "$INSTALLS_FILE" ] || die "nothing installed through nomalms yet (nomalms install, or nomalms adopt <folder>)"
+    target="${1:-}"
+    count="$(grep -c . "$INSTALLS_FILE")"
+    if [ -z "$target" ] && [ "$count" -gt 1 ]; then
+        # Several products on this server: never pull them all without being asked.
+        info "Several products are installed on this server:"
+        n=0
+        while IFS="$TAB" read -r name dir <&3; do n=$((n + 1)); info "  $n) $name  ($dir)"; done 3< "$INSTALLS_FILE"
+        [ -t 0 ] || die "say which one: nomalms upgrade <product|folder>, or nomalms upgrade --all"
+        printf 'Which one to upgrade? [1-%s, a = all, Enter = none] ' "$count" >&2
+        read -r answer || answer=""
+        case "$answer" in
+            a|A|all) target="--all" ;;
+            ''|*[!0-9]*) die "nothing upgraded" ;;
+            *)
+                { [ "$answer" -ge 1 ] && [ "$answer" -le "$count" ]; } || die "nothing upgraded: '$answer' is not in the list"
+                target="$(grep . "$INSTALLS_FILE" | sed -n "${answer}p" | cut -f 2)" ;;
+        esac
+    fi
     failed=0
-    if [ $# -eq 0 ]; then
+    if [ -z "$target" ] || [ "$target" = "--all" ]; then
         while IFS="$TAB" read -r name dir <&3; do upgrade_one "$name" "$dir" || failed=1; done 3< "$INSTALLS_FILE"
     else
-        target="$1"; [ -d "$target" ] && target="$(cd "$target" && pwd)"
+        [ -d "$target" ] && target="$(cd "$target" && pwd)"
         found=0
         while IFS="$TAB" read -r name dir <&3; do
             if [ "$name" = "$target" ] || [ "$dir" = "$target" ]; then

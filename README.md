@@ -58,9 +58,13 @@ Then follow the product's own README for its first start.
 ## Upgrade
 
 ```bash
-nomalms upgrade                  # every product installed through nomalms
-nomalms upgrade nomaubl          # or one of them
+nomalms upgrade nomaubl          # one product, by name or by folder
+nomalms upgrade                  # asks which one when several are installed
+nomalms upgrade --all            # every product installed through nomalms
 ```
+
+With a single product installed, `nomalms upgrade` upgrades it directly. In a script
+(no terminal) with several products, name the product or pass `--all`.
 
 This pulls the new version, then prints the product's own next step (for NomaUBL:
 `./nomaubl.sh upgrade <env>`). A plain `git pull` in the product folder works too.
@@ -91,7 +95,7 @@ portal (**Repository access › Tokens and deploy keys**), with a plain `git pul
 | `nomalms status` | Products, licences, what is installed here |
 | `nomalms install <product> [folder]` | Clone a product |
 | `nomalms adopt <folder>` | Switch an existing clone to nomalms |
-| `nomalms upgrade [product\|folder]` | `git pull` |
+| `nomalms upgrade [product\|folder\|--all]` | `git pull` of one product; asks which when several are installed |
 | `nomalms license <product>` | Print the licence key |
 | `nomalms self-update` | Update this tool |
 | `nomalms version` | The tool's version |
