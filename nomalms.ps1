@@ -17,7 +17,7 @@
 
 # Not 'Stop': Windows PowerShell 5.1 would turn anything git writes to stderr into a failure.
 $ErrorActionPreference = 'Continue'
-$Version = '1.1.0'
+$Version = '1.1.1'
 $DefaultUrl = 'https://nomalms.nomana-it.fr'
 $ConfDir = if ($env:NOMALMS_HOME) { $env:NOMALMS_HOME } else { Join-Path $env:APPDATA 'nomalms' }
 $ConfFile = Join-Path $ConfDir 'config'
@@ -213,7 +213,7 @@ function Cmd-Adopt($Arguments) {
     Need 'git'
     if (-not (Test-Path (Join-Path $Arguments[0] '.git'))) { Die "'$($Arguments[0])' is not a git clone" }
     $dir = (Resolve-Path $Arguments[0]).Path
-    $oldUrl = "$(& git -C $dir remote get-url origin 2>$null)"
+    $oldUrl = "$(& git -C $dir config --get remote.origin.url 2>$null)"
     if (-not $oldUrl) { Die "'$dir' has no remote named origin" }
     # https://github.com/owner/name(.git) or git@host-or-alias:owner/name(.git)
     $repo = $oldUrl -replace '\.git$', '' -replace '^https?://[^/]*/', '' -replace '^ssh://[^/]*/', '' -replace '^[^:/]*@[^:]*:', ''
