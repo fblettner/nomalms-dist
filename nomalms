@@ -16,7 +16,7 @@
 # Needs: git, curl. Holds no secret itself; the server token is kept in
 # ~/.config/nomalms/config, readable by this user only.
 
-VERSION="1.1.2"
+VERSION="1.1.3"
 DEFAULT_URL="https://nomalms.nomana-it.fr"
 CONF_DIR="${NOMALMS_HOME:-$HOME/.config/nomalms}"
 CONF_FILE="$CONF_DIR/config"
@@ -328,7 +328,13 @@ cmd_git_credential() {
 
 cmd_self_update() {
     need git
-    here="$(dirname "$(self_path)")"
+    # The command is usually a link (/usr/local/bin/nomalms): follow it to the clone.
+    file="$(self_path)"
+    while [ -L "$file" ]; do
+        target="$(readlink "$file")"
+        case "$target" in /*) file="$target" ;; *) file="$(dirname "$file")/$target" ;; esac
+    done
+    here="$(cd "$(dirname "$file")" && pwd)"
     [ -d "$here/.git" ] || die "$here is not a git clone: download the new version by hand"
     git_at "$here" pull --ff-only && echo "nomalms $("$(self_path)" version)"
 }
