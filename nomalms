@@ -16,7 +16,7 @@
 # Needs: git, curl. Holds no secret itself; the server token is kept in
 # ~/.config/nomalms/config, readable by this user only.
 
-VERSION="1.1.1"
+VERSION="1.1.2"
 DEFAULT_URL="https://nomalms.nomana-it.fr"
 CONF_DIR="${NOMALMS_HOME:-$HOME/.config/nomalms}"
 CONF_FILE="$CONF_DIR/config"
@@ -165,11 +165,10 @@ git_resets_helpers() {
     [ "${1:-0}" -gt 2 ] || { [ "${1:-0}" -eq 2 ] && [ "${2:-0}" -ge 9 ]; }
 }
 
-# The enrolment and the git configuration belong to one user: the one that pulls.
-check_owner() {
+# Git refuses a folder owned by another user unless it is declared safe.
+owner_hint() {
     owner="$(ls -ld "$1" | awk '{print $3}')"
-    me="$(id -un)"
-    [ "$owner" = "$me" ] || die "'$1' belongs to $owner, and you are $me. Run nomalms as $owner (the enrolment is per user: run 'nomalms enroll' as $owner too)"
+    echo "'$1' belongs to $owner, and you are $(id -un). Either run nomalms as $owner (enrol as $owner too: the enrolment is per user), or allow it for this user: git config --global --add safe.directory $1"
 }
 
 configure_clone() {
@@ -217,11 +216,11 @@ cmd_adopt() {
     need git
     [ -d "$1/.git" ] || die "'$1' is not a git clone"
     dir="$(cd "$1" && pwd)"
-    check_owner "$dir"
     mkdir -p "$CONF_DIR"
     # Not "git remote get-url": it needs git 2.7.
     old_url="$(git_at "$dir" config --get remote.origin.url 2> "$CONF_DIR/.git-error")" || {
         reason="$(cat "$CONF_DIR/.git-error" 2> /dev/null)"; rm -f "$CONF_DIR/.git-error"
+        case "$reason" in *dubious*|*safe.directory*) die "$(owner_hint "$dir")" ;; esac
         [ -z "$reason" ] || die "git cannot read '$dir': $reason"
         die "'$dir' has no remote named origin"
     }
@@ -256,7 +255,6 @@ cmd_adopt() {
 upgrade_one() {
     name="$1"; dir="$2"
     [ -d "$dir/.git" ] || { info "nomalms: $dir is missing, skipped"; return 1; }
-    ( check_owner "$dir" ) || return 1
     before="$(git_at "$dir" rev-parse HEAD 2> /dev/null)"
     echo "== $name ($dir)"
     git_at "$dir" pull --ff-only || { info "nomalms: the pull failed in $dir"; return 1; }
