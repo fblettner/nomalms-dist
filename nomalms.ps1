@@ -17,7 +17,7 @@
 
 # Not 'Stop': Windows PowerShell 5.1 would turn anything git writes to stderr into a failure.
 $ErrorActionPreference = 'Continue'
-$Version = '1.1.3'
+$Version = '1.2.0'
 $DefaultUrl = 'https://nomalms.nomana-it.fr'
 $ConfDir = if ($env:NOMALMS_HOME) { $env:NOMALMS_HOME } else { Join-Path $env:APPDATA 'nomalms' }
 $ConfFile = Join-Path $ConfDir 'config'

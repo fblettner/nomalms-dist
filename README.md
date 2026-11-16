@@ -66,8 +66,39 @@ nomalms upgrade --all            # every product installed through nomalms
 With a single product installed, `nomalms upgrade` upgrades it directly. In a script
 (no terminal) with several products, name the product or pass `--all`.
 
-This pulls the new version, then prints the product's own next step (for NomaUBL:
-`./nomaubl.sh upgrade <env>`). A plain `git pull` in the product folder works too.
+This pulls the new version only: the files are replaced, the running application is not
+touched. A plain `git pull` in the product folder works too.
+
+### Upgrade the application as well (Linux)
+
+Add `--apply` to run the product's own upgrade procedure after the pull:
+
+```bash
+nomalms upgrade nomaubl --apply              # every environment found in the folder
+nomalms upgrade nomaubl --apply --env pd     # only this one (repeat --env for several)
+```
+
+| Product | What `--apply` runs |
+|---|---|
+| NomaUBL | `./nomaubl.sh upgrade <env>` for each environment, one after the other; it stops at the first that fails |
+| Liberty apps, Docker | `./liberty apps <the wheel named in LATEST>` in the liberty-next release folder |
+| Liberty apps, Python | `pipx inject --force liberty-next <wheel>`, `liberty-apps install --target <target>`, `liberty-ops migrate` |
+
+The Liberty wheel is checked against `SHA256SUMS` first.
+
+Settings are kept per install, on this server:
+
+```bash
+nomalms set nomaubl envs "pd py"             # the environments --apply upgrades (default: all)
+nomalms set nomaubl apply yes                # always upgrade the application after a pull that brought a new version
+nomalms set liberty mode docker              # or: python  (required for Liberty)
+nomalms set liberty liberty_dir /opt/liberty-next/release      # Docker: where the ./liberty script is
+nomalms set liberty target /opt/liberty/apps/config            # Python: default shown
+nomalms set nomaubl                          # show the settings
+```
+
+With `apply yes`, a pull that brings nothing new upgrades nothing; `--apply` on the command
+line always runs the procedure. On Windows, `nomalms upgrade` pulls only.
 
 ## Switch an existing install
 
@@ -96,6 +127,8 @@ portal (**Repository access › Tokens and deploy keys**), with a plain `git pul
 | `nomalms install <product> [folder]` | Clone a product |
 | `nomalms adopt <folder>` | Switch an existing clone to nomalms |
 | `nomalms upgrade [product\|folder\|--all]` | `git pull` of one product; asks which when several are installed |
+| `nomalms upgrade ... --apply [--env <name>]` | the same, then the product's upgrade procedure (Linux) |
+| `nomalms set <product\|folder> [key value]` | settings of an install: `apply`, `envs`, `mode`, `liberty_dir`, `target` |
 | `nomalms license <product>` | Print the licence key |
 | `nomalms self-update` | Update this tool |
 | `nomalms version` | The tool's version |

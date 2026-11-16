@@ -10,13 +10,15 @@
 #   nomalms install <product> [folder]          clone a product
 #   nomalms adopt <folder>                      switch an existing clone to nomalms
 #   nomalms upgrade [product|folder|--all]      git pull one product (asks which if several)
+#           [--apply] [--env <name>]...         ... then upgrade the application itself
+#   nomalms set <product|folder> [key value]    settings of an install (apply, envs, mode, ...)
 #   nomalms license <product>                   print the licence key
 #   nomalms self-update                         update this tool
 #
 # Needs: git, curl. Holds no secret itself; the server token is kept in
 # ~/.config/nomalms/config, readable by this user only.
 
-VERSION="1.1.3"
+VERSION="1.2.0"
 DEFAULT_URL="https://nomalms.nomana-it.fr"
 CONF_DIR="${NOMALMS_HOME:-$HOME/.config/nomalms}"
 CONF_FILE="$CONF_DIR/config"
@@ -186,11 +188,126 @@ record_install() {
     mv "$INSTALLS_FILE.tmp" "$INSTALLS_FILE"
 }
 
-next_step() {
-    case "$1" in
-        nomaubl*) echo "Next, for each environment: ./nomaubl.sh upgrade <env>   (in $2)" ;;
-        *) echo "Next: follow the product's README in $2 to install the new version." ;;
+# ---- settings per install: folder <TAB> key <TAB> value --------------------------------
+SETTINGS_FILE="$CONF_DIR/settings"
+SETTING_KEYS="apply envs mode liberty_dir target"
+
+setting() { [ -f "$SETTINGS_FILE" ] && awk -F "$TAB" -v d="$1" -v k="$2" '$1 == d && $2 == k { print $3 }' "$SETTINGS_FILE" | tail -n 1; }
+
+# install_of PRODUCT|FOLDER -> "name<TAB>folder" of the one install meant.
+install_of() {
+    [ -s "$INSTALLS_FILE" ] || die "nothing installed through nomalms yet"
+    t="$1"; [ -d "$t" ] && t="$(cd "$t" && pwd)"
+    found="$(awk -F "$TAB" -v t="$t" '$1 == t || $2 == t' "$INSTALLS_FILE")"
+    [ -n "$found" ] || die "'$1' is not installed through nomalms (see: nomalms status)"
+    [ "$(printf '%s\n' "$found" | grep -c .)" -eq 1 ] || die "'$1' is installed in several folders: give the folder"
+    printf '%s\n' "$found"
+}
+
+cmd_set() {
+    [ $# -ge 1 ] || die "usage: nomalms set <product|folder> [<key> <value>]   keys: $SETTING_KEYS"
+    entry="$(install_of "$1")" || exit 1
+    dir="$(printf '%s\n' "$entry" | cut -f 2)"
+    if [ $# -eq 1 ]; then
+        echo "Settings of $dir:"
+        for k in $SETTING_KEYS; do
+            v="$(setting "$dir" "$k")"; [ -n "$v" ] && printf '  %-12s %s\n' "$k" "$v"
+        done
+        return 0
+    fi
+    [ $# -ge 3 ] || die "usage: nomalms set <product|folder> <key> <value>"
+    key="$2"; shift 2; value="$*"
+    case " $SETTING_KEYS " in *" $key "*) ;; *) die "unknown setting '$key' (one of: $SETTING_KEYS)" ;; esac
+    case "$key" in
+        apply) case "$value" in yes|no) ;; *) die "apply is yes or no" ;; esac ;;
+        mode) case "$value" in docker|python) ;; *) die "mode is docker or python" ;; esac ;;
+        liberty_dir) [ -x "$value/liberty" ] || die "'$value' does not hold the 'liberty' script (give the liberty-next release folder)"
+            value="$(cd "$value" && pwd)" ;;
     esac
+    case "$value" in *"$TAB"*) die "a value cannot contain a tab" ;; esac
+    mkdir -p "$CONF_DIR"; touch "$SETTINGS_FILE"
+    awk -F "$TAB" -v d="$dir" -v k="$key" '!($1 == d && $2 == k)' "$SETTINGS_FILE" > "$SETTINGS_FILE.tmp"
+    printf '%s\t%s\t%s\n' "$dir" "$key" "$value" >> "$SETTINGS_FILE.tmp"
+    mv "$SETTINGS_FILE.tmp" "$SETTINGS_FILE"
+    echo "$key = $value   ($dir)"
+}
+
+# ---- upgrading the application after the pull ------------------------------------------
+# The products' own, documented procedures. Which one applies is told by the repository.
+product_kind() {
+    case "$(git_at "$1" config --get remote.origin.url 2> /dev/null | sed -e 's/\.git$//' -e 's#.*/##')" in
+        nomaubl-dist) echo nomaubl ;;
+        liberty-apps-dist) echo liberty ;;
+        *) echo unknown ;;
+    esac
+}
+
+# The environments of a NomaUBL install: the folders holding config/config.json.
+nomaubl_envs() {
+    home="$( [ -f "$1/nomaubl.conf" ] && . "$1/nomaubl.conf" > /dev/null 2>&1; printf '%s' "${ENV_HOME:-}" )"
+    case "$home" in '') home="$1" ;; /*) ;; *) home="$1/$home" ;; esac
+    for cfg in "$home"/*/config/config.json; do
+        [ -f "$cfg" ] && basename "$(dirname "$(dirname "$cfg")")"
+    done
+}
+
+apply_nomaubl() {
+    dir="$1"
+    envs="${CLI_ENVS:-$(setting "$dir" envs)}"
+    [ -n "$envs" ] || envs="$(nomaubl_envs "$dir" | tr '\n' ' ')"
+    [ -n "$(printf '%s' "$envs" | tr -d ' ')" ] || { info "nomalms: no environment found in $dir; run ./nomaubl.sh upgrade <env> yourself"; return 1; }
+    echo "Environments to upgrade: $envs"
+    for env in $envs; do
+        echo "-- ./nomaubl.sh upgrade $env"
+        ( cd "$dir" && ./nomaubl.sh upgrade "$env" ) || {
+            info "nomalms: the upgrade of '$env' failed; the environments after it were not touched"
+            return 1
+        }
+    done
+}
+
+apply_liberty() {
+    dir="$1"
+    wheel="$dir/$(head -n 1 "$dir/LATEST" 2> /dev/null | tr -d '[:space:]')"
+    [ -f "$wheel" ] || { info "nomalms: LATEST does not name a wheel present in $dir"; return 1; }
+    if [ -f "$dir/SHA256SUMS" ]; then
+        sum="$(grep "[ *]$(basename "$wheel")\$" "$dir/SHA256SUMS")"
+        if [ -n "$sum" ]; then
+            if command -v sha256sum > /dev/null 2>&1; then check="sha256sum -c -"; else check="shasum -a 256 -c -"; fi
+            ( cd "$dir" && printf '%s\n' "$sum" | $check > /dev/null 2>&1 ) || { info "nomalms: $(basename "$wheel") does not match SHA256SUMS"; return 1; }
+        fi
+    fi
+    case "$(setting "$dir" mode)" in
+        docker)
+            ldir="$(setting "$dir" liberty_dir)"
+            [ -x "$ldir/liberty" ] || { info "nomalms: say where liberty-next's release folder is: nomalms set $dir liberty_dir <folder>"; return 1; }
+            echo "-- ./liberty apps $wheel   (in $ldir)"
+            ( cd "$ldir" && ./liberty apps "$wheel" ) ;;
+        python)
+            target="$(setting "$dir" target)"; target="${target:-/opt/liberty/apps/config}"
+            echo "-- pipx inject --force liberty-next $wheel"
+            pipx inject --force liberty-next "$wheel" || return 1
+            echo "-- liberty-apps install --target $target"
+            liberty-apps install --target "$target" || return 1
+            echo "-- liberty-ops migrate"
+            liberty-ops migrate ;;
+        *)
+            info "nomalms: say how Liberty runs here, once: nomalms set $dir mode docker   (or: python)"
+            return 1 ;;
+    esac
+}
+
+apply_app() {
+    case "$(product_kind "$1")" in
+        nomaubl) apply_nomaubl "$1" ;;
+        liberty) apply_liberty "$1" ;;
+        *) info "nomalms: no upgrade procedure is built in for this product; follow its README in $1"; return 1 ;;
+    esac
+}
+
+next_step() {
+    echo "The files are up to date; the application itself was not upgraded."
+    echo "To do it: nomalms upgrade $1 --apply   (always after a pull: nomalms set $1 apply yes)"
 }
 
 cmd_install() {
@@ -260,16 +377,35 @@ upgrade_one() {
     git_at "$dir" pull --ff-only || { info "nomalms: the pull failed in $dir"; return 1; }
     if [ "$before" = "$(git_at "$dir" rev-parse HEAD)" ]; then
         echo "Already up to date ($(git_at "$dir" describe --tags --always 2> /dev/null))."
+        # Nothing new: the application is only upgraded when asked for on the command line.
+        [ "$CLI_APPLY" = yes ] || return 0
     else
         echo "Now at $(git_at "$dir" describe --tags --always 2> /dev/null)."
-        next_step "$name" "$dir"
+        if [ "$CLI_APPLY" != yes ] && [ "$(setting "$dir" apply)" != yes ]; then
+            next_step "$name"
+            return 0
+        fi
     fi
+    # $name and $dir are reused by the procedures: keep ours.
+    ( apply_app "$dir" ) || { info "nomalms: $name was pulled, but its upgrade did not complete"; return 1; }
+    echo "$name is upgraded."
 }
 
 cmd_upgrade() {
     need git
     [ -s "$INSTALLS_FILE" ] || die "nothing installed through nomalms yet (nomalms install, or nomalms adopt <folder>)"
-    target="${1:-}"
+    target=""; CLI_APPLY=no; CLI_ENVS=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --apply) CLI_APPLY=yes ;;
+            --env) [ $# -ge 2 ] || die "--env needs a name"; CLI_ENVS="$CLI_ENVS $2"; shift ;;
+            --all) target="--all" ;;
+            -*) die "unknown option '$1'" ;;
+            *) [ -z "$target" ] || die "one product at a time (or --all)"; target="$1" ;;
+        esac
+        shift
+    done
+    asked="$target"
     count="$(grep -c . "$INSTALLS_FILE")"
     if [ -z "$target" ] && [ "$count" -gt 1 ]; then
         # Several products on this server: never pull them all without being asked.
@@ -298,7 +434,7 @@ cmd_upgrade() {
                 found=1; upgrade_one "$name" "$dir" || failed=1
             fi
         done 3< "$INSTALLS_FILE"
-        [ $found -eq 1 ] || die "'$1' is not installed through nomalms (see: nomalms status)"
+        [ $found -eq 1 ] || die "'$asked' is not installed through nomalms (see: nomalms status)"
     fi
     exit $failed
 }
@@ -349,6 +485,7 @@ case "$cmd" in
     install) cmd_install "$@" ;;
     adopt) cmd_adopt "$@" ;;
     upgrade|update) cmd_upgrade "$@" ;;
+    set) cmd_set "$@" ;;
     license|licence) cmd_license "$@" ;;
     git-credential) cmd_git_credential "$@" ;;
     self-update) cmd_self_update ;;
