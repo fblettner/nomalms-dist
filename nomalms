@@ -10,15 +10,27 @@
 #   nomalms install <product> [folder]          clone a product
 #   nomalms adopt <folder>                      switch an existing clone to nomalms
 #   nomalms upgrade [product|folder|--all]      git pull one product (asks which if several)
-#           [--apply] [--env <name>]...         ... then upgrade the application itself
-#   nomalms set <product|folder> [key value]    settings of an install (apply, envs, mode, ...)
+#   nomalms upgrade <product> --apply           ... then upgrade the application itself:
+#           --env <name> [--env <name>]...          NomaUBL: the environment(s), required
+#   nomalms set <product|folder>                show the settings of an install
+#   nomalms set <product|folder> <key> <value>  change one:
+#           envs "<name> ..."                       NomaUBL: environments used when no --env is given
+#           apply yes|no                            upgrade the application after each pull that brings a new version
+#           mode docker|python                      Liberty: how it runs here (required for --apply)
+#           liberty_dir <folder>                    Liberty, Docker: the liberty-next release folder
+#           target <folder>                         Liberty, Python: default /opt/liberty/apps/config
 #   nomalms license <product>                   print the licence key
 #   nomalms self-update                         update this tool
+#   nomalms version                             print the version of this tool
+#
+# Examples:
+#   nomalms upgrade nomaubl                     pull only
+#   nomalms upgrade nomaubl --apply --env py    pull, then ./nomaubl.sh upgrade py
 #
 # Needs: git, curl. Holds no secret itself; the server token is kept in
 # ~/.config/nomalms/config, readable by this user only.
 
-VERSION="1.2.1"
+VERSION="1.2.2"
 DEFAULT_URL="https://nomalms.nomana-it.fr"
 CONF_DIR="${NOMALMS_HOME:-$HOME/.config/nomalms}"
 CONF_FILE="$CONF_DIR/config"
@@ -483,7 +495,7 @@ cmd_self_update() {
     git_at "$here" pull --ff-only && echo "nomalms $("$(self_path)" version)"
 }
 
-usage() { sed -n '2,/^$/p' "$0" | sed -e 's/^# \{0,1\}//' -e '/^Needs:/,$d'; }
+usage() { sed -n '2,/^$/p' "$0" | sed -e 's/^# \{0,1\}//' -e '/^Needs:/,$d'; echo "This is nomalms $VERSION."; }
 
 need curl
 cmd="${1:-help}"; [ $# -gt 0 ] && shift
