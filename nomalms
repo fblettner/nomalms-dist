@@ -18,7 +18,7 @@
 # Needs: git, curl. Holds no secret itself; the server token is kept in
 # ~/.config/nomalms/config, readable by this user only.
 
-VERSION="1.2.0"
+VERSION="1.2.1"
 DEFAULT_URL="https://nomalms.nomana-it.fr"
 CONF_DIR="${NOMALMS_HOME:-$HOME/.config/nomalms}"
 CONF_FILE="$CONF_DIR/config"
@@ -254,8 +254,16 @@ nomaubl_envs() {
 apply_nomaubl() {
     dir="$1"
     envs="${CLI_ENVS:-$(setting "$dir" envs)}"
-    [ -n "$envs" ] || envs="$(nomaubl_envs "$dir" | tr '\n' ' ')"
-    [ -n "$(printf '%s' "$envs" | tr -d ' ')" ] || { info "nomalms: no environment found in $dir; run ./nomaubl.sh upgrade <env> yourself"; return 1; }
+    known="$(nomaubl_envs "$dir" | tr '\n' ' ')"
+    # Never a default: test and production are not upgraded together by accident.
+    if [ -z "$(printf '%s' "$envs" | tr -d ' ')" ]; then
+        info "nomalms: say which environment to upgrade: nomalms upgrade <product> --apply --env <name>"
+        info "         found in $dir: ${known:-none}"
+        return 1
+    fi
+    for env in $envs; do
+        case " $known " in *" $env "*) ;; *) info "nomalms: no environment '$env' in $dir (found: ${known:-none}); nothing was upgraded"; return 1 ;; esac
+    done
     echo "Environments to upgrade: $envs"
     for env in $envs; do
         echo "-- ./nomaubl.sh upgrade $env"

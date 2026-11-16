@@ -74,13 +74,15 @@ touched. A plain `git pull` in the product folder works too.
 Add `--apply` to run the product's own upgrade procedure after the pull:
 
 ```bash
-nomalms upgrade nomaubl --apply              # every environment found in the folder
-nomalms upgrade nomaubl --apply --env pd     # only this one (repeat --env for several)
+nomalms upgrade nomaubl --apply --env py     # this environment (repeat --env for several)
 ```
+
+For NomaUBL the environment is required: nothing is upgraded without `--env` (or the `envs`
+setting below), so test and production are never upgraded together by accident.
 
 | Product | What `--apply` runs |
 |---|---|
-| NomaUBL | `./nomaubl.sh upgrade <env>` for each environment, one after the other; it stops at the first that fails |
+| NomaUBL | `./nomaubl.sh upgrade <env>` for each environment named, one after the other; it stops at the first that fails |
 | Liberty apps, Docker | `./liberty apps <the wheel named in LATEST>` in the liberty-next release folder |
 | Liberty apps, Python | `pipx inject --force liberty-next <wheel>`, `liberty-apps install --target <target>`, `liberty-ops migrate` |
 
@@ -89,8 +91,8 @@ The Liberty wheel is checked against `SHA256SUMS` first.
 Settings are kept per install, on this server:
 
 ```bash
-nomalms set nomaubl envs "pd py"             # the environments --apply upgrades (default: all)
-nomalms set nomaubl apply yes                # always upgrade the application after a pull that brought a new version
+nomalms set nomaubl envs py                  # the environments upgraded when no --env is given
+nomalms set nomaubl apply yes                # upgrade them after every pull that brings a new version (needs envs)
 nomalms set liberty mode docker              # or: python  (required for Liberty)
 nomalms set liberty liberty_dir /opt/liberty-next/release      # Docker: where the ./liberty script is
 nomalms set liberty target /opt/liberty/apps/config            # Python: default shown
